@@ -45,4 +45,5 @@ The Additional bash functions it provides are:
 * [Sailfish HADK FAQ - Mirror](https://raw.githubusercontent.com/r0kk3rz/hadk-docs/master/hadk-faq.md)
 
 Thanks a ton to #saiflishos-porters on freenode
+
 Thanks a lot to @saidinesh5 for just about everything <3!
