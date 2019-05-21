@@ -2,9 +2,10 @@ function hadk() { source $HOME/.hadk.env; echo "Env setup for $DEVICE"; }
 hadk
 
 alias enter_habuildsdk="ubu-chroot -r $HABUILD_ROOT"
+alias ubu_rootb="ubu-chroot -r $HABUILD_ROOT /bin/bash"
 alias enter_scratchbox="sb2 -t $VENDOR-$DEVICE-$PORT_ARCH -m sdk-install -R"
 
-PS1="MerSDK $PS1"
+PS1="Platform SDK $PS1"
 
 #TODO add error checks
 
@@ -27,14 +28,13 @@ die () {
 
 
 function setup_ubuntuchroot {
-  mkdir -p $MER_TMPDIR
-  pushd $MER_TMPDIR
-  TARBALL=ubuntu-trusty-android-rootfs.tar.bz2
-  curl -k -O -C - http://img.merproject.org/images/mer-hybris/ubu/$TARBALL || die "Error downloading ubuntu rootfs"
+  mkdir -p $SF_TMPDIR
+  pushd $SF_TMPDIR
+  TARBALL=ubuntu-trusty-20180613-android-rootfs.tar.bz2
+  curl -O https://releases.sailfishos.org/ubu/$TARBALL || die "Error downloading ubuntu rootfs"
   sudo rm -rf $HABUILD_ROOT
   sudo mkdir -p $HABUILD_ROOT
-  sudo tar --numeric-owner -xvjf $TARBALL -C $HABUILD_ROOT
-  ubu-chroot -r $HABUILD_ROOT /bin/bash -c "echo Installing useful tools && sudo apt-get update && sudo apt-get install -y rsync vim unzip silversearcher-ag bsdmainutils openjdk-7-jdk && sudo update-java-alternatives -s java-1.7.0-openjdk-amd64"
+  sudo tar --numeric-owner -xjf $TARBALL -C $HABUILD_ROOT
   popd
 }
 
@@ -50,8 +50,8 @@ function fetch_sources {
 }
 
 function setup_scratchbox {
-  mkdir -p $MER_TMPDIR
-  pushd $MER_TMPDIR
+  mkdir -p $SF_TMPDIR
+  pushd $SF_TMPDIR
 
   sdk-assistant create SailfishOS-latest http://releases.sailfishos.org/sdk/latest/Jolla-latest-Sailfish_SDK_Tooling-i486.tar.bz2
   sdk-assistant create $VENDOR-$DEVICE-$PORT_ARCH http://releases.sailfishos.org/sdk/latest/Jolla-latest-Sailfish_SDK_Target-armv7hl.tar.bz2
@@ -60,8 +60,8 @@ function setup_scratchbox {
 }
 
 function test_scratchbox {
-  mkdir -p $MER_TMPDIR
-  pushd $MER_TMPDIR
+  mkdir -p $SF_TMPDIR
+  pushd $SF_TMPDIR
 
   cat > main.c << EOF
 #include <stdlib.h>
@@ -111,6 +111,8 @@ function build_packages {
   rpm/dhd/helpers/build_packages.sh $@
   rpm/dhd/helpers/build_packages.sh --mw="https://git.merproject.org/kimmoli/pulseaudio-policy-enforcement.git"
   rpm/dhd/helpers/build_packages.sh --mw="https://git.merproject.org/mer-core/qt-mobility-haptics-ffmemless.git"
+  #For cancro
+  rpm/dhd/helpers/build_packages.sh --mw="https://github.com/kimmoli/usbstick-utils.git"
 
   popd
 }
@@ -135,52 +137,64 @@ function fetch_mw {
 }
 
 function build_audioflingerglue {
+  #FIXME: detecting the android architecture for libaudioflingerglue
   ubu-chroot -r $HABUILD_ROOT /bin/bash -c "echo Building audioflingerglue && cd $ANDROID_ROOT && source build/envsetup.sh && breakfast $DEVICE && make -j8 libaudioflingerglue miniafservice"
 
   pushd $ANDROID_ROOT
-
-  PKG_PATH=$HYBRIS_MW_ROOT/audioflingerglue-localbuild
-  mkdir -p $PKG_PATH/rpm
-
-  #FIXME: DO NOT hardcode the version of the tgz archive of audioflingerglue
-  $ANDROID_ROOT/rpm/dhd/helpers/pack_source_audioflingerglue-localbuild.sh
-  mv $HYBRIS_MW_ROOT/audioflingerglue-0.0.1.tgz $PKG_PATH/
-  cp $ANDROID_ROOT/rpm/dhd/helpers/audioflingerglue-localbuild.spec $PKG_PATH/rpm/audioflingerglue.spec
-  build_package $PKG_PATH
-
-  #Build pulseaudio-modules-droid-glue
-  PKG_REPO=https://github.com/mer-hybris/pulseaudio-modules-droid-glue.git
-  PKG=`basename $PKG_REPO .git`
-
-  fetch_mw $PKG_REPO || die "Unable to fetch $PKG_REPO"
-  #pushd $HYBRIS_MW_ROOT/$PKG
-  #curl http://pastebin.com/raw/H8U5nSNm -o pulseaudio-modules-droid-glue.patch
-  #patch -p1 < pulseaudio-modules-droid-glue.patch
-  #popd
-
-  build_package $HYBRIS_MW_ROOT/$PKG
+  echo "Building audioflingerglue..."
+  AUDIOFLINGERGLUE_VERSION=$(git --git-dir external/audioflingerglue/.git describe --tags | sed -r "s/\-/\+/g")
+  rpm/dhd/helpers/pack_source_audioflingerglue-localbuild.sh $AUDIOFLINGERGLUE_VERSION
+  mkdir -p hybris/mw/audioflingerglue-localbuild/rpm
+  cp rpm/dhd/helpers/audioflingerglue-localbuild.spec hybris/mw/audioflingerglue-localbuild/rpm/audioflingerglue.spec
+  sed -ie "s/0.0.0/$AUDIOFLINGERGLUE_VERSION/" hybris/mw/audioflingerglue-localbuild/rpm/audioflingerglue.spec
+  mv hybris/mw/audioflingerglue-$AUDIOFLINGERGLUE_VERSION.tgz hybris/mw/audioflingerglue-localbuild
+  rpm/dhd/helpers/build_packages.sh --build=hybris/mw/audioflingerglue-localbuild
+  echo "Building pulseaudio-modules..."
+  git clone https://github.com/mer-hybris/pulseaudio-modules-droid-glue.git hybris/mw/pulseaudio-modules-droid-glue
+  rpm/dhd/helpers/build_packages.sh -b hybris/mw/pulseaudio-modules-droid-glue -s rpm/pulseaudio-modules-droid-glue.spec
 
   popd
 }
 
 function build_gstdroid {
-  ubu-chroot -r $HABUILD_ROOT /bin/bash -c "echo Building gstdroid && cd $MER_ROOT/android/droid && source build/envsetup.sh && breakfast $DEVICE && make -j8 libcameraservice libdroidmedia minimediaservice minisfservice"
+  #FIXME: detecting the android architecture for libdroidmedia and libminisf
+  ubu-chroot -r $HABUILD_ROOT /bin/bash -c "echo Building gstdroid && cd $ANDROID_ROOT && source build/envsetup.sh && breakfast $DEVICE && make -j8 libdroidmedia minimediaservice minisfservice libminisf"
+
+  pushd $ANDROID_ROOT
+  echo "Building droidmedia..."
+  DROIDMEDIA_VERSION=$(git --git-dir external/droidmedia/.git describe --tags | sed -r "s/\-/\+/g")
+  rpm/dhd/helpers/pack_source_droidmedia-localbuild.sh $DROIDMEDIA_VERSION
+  mkdir -p hybris/mw/droidmedia-localbuild/rpm
+  cp rpm/dhd/helpers/droidmedia-localbuild.spec hybris/mw/droidmedia-localbuild/rpm/droidmedia.spec
+  sed -ie "s/0.0.0/$DROIDMEDIA_VERSION/" hybris/mw/droidmedia-localbuild/rpm/droidmedia.spec
+  mv hybris/mw/droidmedia-$DROIDMEDIA_VERSION.tgz hybris/mw/droidmedia-localbuild
+  rpm/dhd/helpers/build_packages.sh --build=hybris/mw/droidmedia-localbuild
+  echo "Building GStreamer..."
+  git clone https://github.com/sailfishos/gst-droid.git hybris/mw/gst-droid
+  cd hybris/mw/gst-droid
+  git submodule update --init
+  cd $ANDROID_ROOT
+  rpm/dhd/helpers/build_packages.sh -b hybris/mw/gst-droid -s rpm/gst-droid.spec
+
+  popd
+}
+
+function generate_ks {
   pushd $ANDROID_ROOT
 
-  PKG_PATH=$HYBRIS_MW_ROOT/droidmedia-localbuild
-  mkdir -p $PKG_PATH/rpm/
+  HA_REPO="repo --name=adaptation-community-common-$DEVICE-@RELEASE@"
+  HA_DEV="repo --name=adaptation-community-$DEVICE-@RELEASE@"
+  KS="Jolla-@RELEASE@-$DEVICE-@ARCH@.ks"
 
-  DROIDMEDIA_VERSION=$(git --git-dir $ANDROID_ROOT/external/droidmedia/.git describe --tags | sed -r "s/\-/\+/g")
-  sed -e "s/0.0.0/$DROIDMEDIA_VERSION/" $ANDROID_ROOT/rpm/dhd/helpers/droidmedia-localbuild.spec > $PKG_PATH/rpm/droidmedia.spec
+  echo "Rebuilding droid-configs-$DEVICE"
+  rpm/dhd/helpers/build_packages.sh --configs
 
-  #FIXME: Do not hardcode version this way
-  $ANDROID_ROOT/rpm/dhd/helpers/pack_source_droidmedia-localbuild.sh $DROIDMEDIA_VERSION
-  mv $HYBRIS_MW_ROOT/droidmedia-$DROIDMEDIA_VERSION.tgz $PKG_PATH/
-  build_package $PKG_PATH
+  cd $ANDROID_ROOT
+  rpm2cpio droid-local-repo/$DEVICE/droid-configs/droid-config-$DEVICE-ssu-kickstarts-1-1.armv7hl.rpm | cpio -idmv
+  cp usr/share/kickstarts/Jolla-@RELEASE@-cancro-@ARCH@.ks $ANDROID_ROOT
+  rm -rf usr
 
-  PKG_REPO=https://github.com/sailfishos/gst-droid.git
-  fetch_mw $PKG_REPO
-  build_package $ANDROID_ROOT/hybris/mw/`basename $PKG_REPO .git`
+  sed "/$HA_REPO/i$HA_DEV --baseurl=file:\/\/$ANDROID_ROOT\/droid-local-repo\/$DEVICE" $ANDROID_ROOT/hybris/droid-configs/installroot/usr/share/kickstarts/$KS > $KS
 
   popd
 }
@@ -217,7 +231,7 @@ function generate_kickstart {
     sed -i -e "s/sailfish_latest_@ARCH@\//sailfishos_@RELEASE@\//g" $KS_PATH
   fi
 
-  sed -i -e "s|@Jolla Configuration $DEVICE|@Jolla Configuration $DEVICE\njolla-email\nsailfish-weather\njolla-calculator\njolla-notes\njolla-calendar\nsailfish-office\nharbour-poor-maps|"  $KS_PATH
+  sed -i -e "s|@Jolla Configuration $DEVICE|@Jolla Configuration $DEVICE\njolla-email\nsailfish-weather\njolla-calculator\njolla-notes\njolla-calendar\nsailfish-office|"  $KS_PATH
 
   #Hacky workaround for droid-hal-init starting before /system partition is mounted
   #sed -i '/%post$/a sed -i \"s;WantedBy;RequiredBy;g\"  \/lib\/systemd\/system\/system.mount' $KS_PATH
@@ -236,7 +250,8 @@ function build_rootfs {
     EXTRA_NAME=-$1
   fi
   echo Building Image: $EXTRA_NAME
-  sudo mic create fs --arch $PORT_ARCH --debug --tokenmap=ARCH:$PORT_ARCH,RELEASE:$RELEASE,EXTRA_NAME:$EXTRA_NAME --record-pkgs=name,url --outdir=sfe-$DEVICE-$RELEASE$EXTRA_NAME --pack-to=sfe-$DEVICE-$RELEASE$EXTRA_NAME.tar.bz2 $ANDROID_ROOT/tmp/Jolla-@RELEASE@-$DEVICE-@ARCH@.ks
+  hybris/droid-configs/droid-configs-device/helpers/process_patterns.sh
+  sudo mic create fs --arch $PORT_ARCH --debug --tokenmap=ARCH:$PORT_ARCH,RELEASE:$RELEASE,EXTRA_NAME:$EXTRA_NAME --record-pkgs=name,url --outdir=sfe-$DEVICE-$RELEASE$EXTRA_NAME --pack-to=sfe-$DEVICE-$RELEASE$EXTRA_NAME.tar.bz2 $ANDROID_ROOT/Jolla-@RELEASE@-$DEVICE-@ARCH@.ks
 }
 
 function serve_repo {
@@ -251,7 +266,7 @@ function serve_repo {
 }
 
 function update_sdk {
-  SFE_SB2_TARGET=$MER_ROOT/targets/$VENDOR-$DEVICE-$PORT_ARCH
+  SFE_SB2_TARGET=$PLATFORM_SDK_ROOT/targets/$VENDOR-$DEVICE-$PORT_ARCH
   TARGETS_URL=http://releases.sailfishos.org/sdk/latest/targets/targets.json
   CURRENT_STABLE_TARGET=$(curl -s $TARGETS_URL 2>/dev/null | grep "$PORT_ARCH.tar.bz2" | cut -d\" -f4 | grep $PORT_ARCH | head -n 1)
   CURRENT_STABLE_VERSION=`echo $CURRENT_STABLE_TARGET | cut -d'/' -f6 | cut -f 2 -d'-'`
@@ -335,8 +350,8 @@ function promote_packages {
   done
 }
 
-function mer_man {
-  echo "Welcome to MerSDK"
+function sf_man {
+  echo "Welcome to SailfishOS Platform SDK"
   echo "Additional convenience functions defined here are:"
   echo "  1) setup_ubuntuchroot: set up ubuntu chroot for painless building of android"
   echo "  2) setup_repo: sets up repo tool in ubuntu chroot to fetch android/mer sources"
@@ -352,11 +367,12 @@ function mer_man {
   echo "  12) upload_packages: uploads droid-hal*, audioflingerglue, gstdroid* packages to nemo:devel:hw:$VENDOR:$DEVICE on OBS"
   echo "  13) promote_packages: promote packages on OBS from nemo:devel:hw:$VENDOR:$DEVICE to nemo:testing:hw:$VENDOR:$DEVICE"
   echo "  14) generate_kickstart [local/release]: generates a kickstart file with devel repos, needed to build rootfs. Specifying local/release will switch the OBS repos"
-  echo "  15) build_rootfs [releasename]: builds a sailfishos installer zip for $DEVICE"
-  echo "  16) serve_repo : starts a http server on local host. (which you can easily add to your device as ssu ar http://<ipaddr>:9000)"
-  echo "  17) update_sdk: Update the SDK target to the current stable version, if available."
-  echo "  18) mer_man: Show this help"
+  echo "  15) generate_ks: generate a normal kickstart without obs addones"
+  echo "  16) build_rootfs [releasename]: builds a sailfishos installer zip for $DEVICE"
+  echo "  17) serve_repo : starts a http server on local host. (which you can easily add to your device as ssu ar http://<ipaddr>:9000)"
+  echo "  18) update_sdk: Update the SDK target to the current stable version, if available."
+  echo "  19) sf_man: Show this help"
 }
 
 cd $ANDROID_ROOT
-mer_man
+echo "Howdy $USER !"
