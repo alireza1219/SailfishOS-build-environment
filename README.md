@@ -30,15 +30,19 @@ The Additional bash functions it provides are:
   12) upload_packages: uploads droid-hal*, audioflingerglue, gstdroid* packages to nemo:devel:hw:$VENDOR:$DEVICE on OBS
   13) promote_packages: promote packages on OBS from nemo:devel:hw:$VENDOR:$DEVICE to nemo:testing:hw:$VENDOR:$DEVICE
   14) generate_kickstart [local/release]: generates a kickstart file with devel repos, needed to build rootfs. Specifying local/release will switch the OBS repos
-  15) build_rootfs [releasename]: builds a sailfishos installer zip for $DEVICE
-  16) serve_repo : starts a http server on local host. (which you can easily add to your device as ssu ar http://<ipaddr>:9000)
-  17) update_sdk: Update the SDK target to the current stable version, if available.
-  18) mer_man: Show this help
+  15) generate_ks: generate a normal kickstart without obs addones
+  16) build_rootfs [releasename]: builds a sailfishos installer zip for $DEVICE
+  17) serve_repo : starts a http server on local host. (which you can easily add to your device as ssu ar http://<ipaddr>:9000)
+  18) update_sdk: Update the SDK target to the current stable version, if available.
+  19) sf_man: Show this help
 ```
 
 ### More info:
 
 * [Sailfish HADK](https://sailfishos.org/develop/hadk/)
-* [Sailfish HADK FAQ](http://piratepad.net/hadk-faq-v2)
+* [Anbox for SFOS](https://public.etherpad-mozilla.org/p/anbox-sailfishos)
+* [Sailfish HADK FAQ](https://public.etherpad-mozilla.org/p/faq-hadk)
+* [Sailfish HADK FAQ - Mirror](https://raw.githubusercontent.com/r0kk3rz/hadk-docs/master/hadk-faq.md)
 
 Thanks a ton to #saiflishos-porters on freenode
+Thanks a lot to @saidinesh5 for just about everything <3!
